@@ -1,0 +1,239 @@
+from __future__ import print_function
+# -*- coding: latin-1 -*-
+from pyspark.sql import SparkSession
+from pyspark.sql import Row
+from pyspark.sql import functions as f
+from pyspark.sql.types import *
+from pyspark.sql.functions import *
+import os, sys
+import re
+from pyspark.sql.functions import udf, col
+import re
+import json
+
+print("################### Hackathon Program Execution Start #########################")
+
+#Declaring Spark variables
+
+sp= SparkSession.builder.enableHiveSupport().getOrCreate()
+
+#USE CASE 1 :  CODE BASE
+print("####### USE CASE 1:Data cleaning, cleansing, scrubbing with insuranceinfo1.csv dataset ########################")
+print("#################### We do following operation in the below code Loading RDDs, remove header, blank lines and impose schema #######")
+#1. Load the file1 (insuranceinfo1.csv) from HDFS using textFile API into an RDD insuredata 
+insuredata1=sp.sparkContext.textFile("hdfs:/user/hduser/Hackathon/Hackathon/insuranceinfo1.csv")
+print("Count of record from insuranceinfo1.csv file with header:" + str(insuredata1.count()))
+#2. Remove the header line from the RDD contains column names
+first=insuredata1.first()
+header=sp.sparkContext.parallelize([first])
+insuredata=insuredata1.subtract(header)
+#3.Display the count and show few rows and check whether header is removed.
+out=insuredata.take(5)
+print("Count of records from insuranceinfo1.csv file without header :"+ str(insuredata.count()))
+#4.Remove the blank lines in the rdd. 
+#5. Map and split using ‘,’ delimiter. 
+nonemptylines=insuredata.filter(lambda x: len(x)!=0).map(lambda l :l.split(",",-1))
+print("count of non-empty lines:" + str(nonemptylines.count()))
+#6. Filter number of fields are equal to 10
+rddsplit=nonemptylines.filter(lambda l: len(l) == 10).filter(lambda l :'' not in l) 
+print("count of records which has data for all 10 fields:Clean Data::" + str(rddsplit.count()))
+out=rddsplit.take(2)
+print(out)
+#7. Add schemausing reflection method with the field names used as per the header record in the file and apply to the above data to create schemaed RDD.
+schmardd1 =rddsplit.map(lambda p: Row(issueID=int(p[0]), IssuerId2=int(p[1]),BusinessDate=(p[2]),StateCode=(p[3]),SourceName=(p[4]),NetworkName=(p[5]),NetworkURL=(p[6]),custnum=int(p[7]),MarketCoverage=(p[8]),DentalOnlyPlan=(p[9])))
+finalrdd=schmardd1
+#8. Take the count of the RDD created in step 7 and step 1 and print how many rows are removed in the cleanup process of removing fields does not equals 10.
+print("Count of record from insuranceinfo1.csv file with header:" + str(insuredata1.count()))
+print("count of records after cleansing:Clean Data::" + str(schmardd1.count()))
+#9. Create another RDD namely rejectdataand store the row that does not equals 10 fields, and analyze why and provide your view here.
+rejectdata=nonemptylines.filter(lambda l :'' in l) 
+print("Count of rejected data :" + str(rejectdata.count()))
+rejectdata.cache()
+# Overview :All 10 fileds doesn't has the data in between it got missed.
+#11. Repeat from step 2 to 9 for this file also and create the final rdd.
+print("####### USE CASE 1:Data cleaning, cleansing, scrubbing insuranceinfo2.csv Dataset########################")
+print("#################### We do following operation in the below code Loading RDDs, remove header, blank lines and impose schema #######")
+#1. Load the file1 (insuranceinfo1.csv) from HDFS using textFile API into an RDD insuredata 
+insuredata1=sp.sparkContext.textFile("hdfs:/user/hduser/Hackathon/Hackathon/insuranceinfo2.csv")
+#count=insuredata1.count()
+print("Count of record from insuranceinfo1.csv file with header:" + str(insuredata1.count()))
+#2. Remove the header line from the RDD contains column names
+first=insuredata1.first()
+header=sp.sparkContext.parallelize([first])
+insuredata=insuredata1.subtract(header)
+#3.Display the count and show few rows and check whether header is removed.
+out=insuredata.take(5)
+print("Count of records from insuranceinfo1.csv file without header :"+ str(insuredata.count()))
+#4.Remove the blank lines in the rdd. 
+#5. Map and split using ‘,’ delimiter. 
+nonemptylines=insuredata.filter(lambda x: len(x)!=0).map(lambda l :l.split(",",-1))
+print("count of non-empty lines:" + str(nonemptylines.count()))
+#6. Filter number of fields are equal to 10
+rddsplit=nonemptylines.filter(lambda l: len(l) == 10).filter(lambda l :'' not in l) 
+print("count of records which has data for all 10 fields:Clean Data::" + str(rddsplit.count()))
+out=rddsplit.take(2)
+print(out)
+#7. Add schemausing reflection method with the field names used as per the header record in the file and apply to the above data to create schemaed RDD.
+schmardd2 =rddsplit.map(lambda p: Row(issueID=int(p[0]), IssuerId2=int(p[1]),BusinessDate=(p[2]),StateCode=(p[3]),SourceName=(p[4]),NetworkName=(p[5]),NetworkURL=(p[6]),custnum=int(p[7]),MarketCoverage=(p[8]),DentalOnlyPlan=(p[9])))
+#8. Take the count of the RDD created in step 7 and step 1 and print how many rows are removed in the cleanup process of removing fields does not equals 10.
+print("Count of record from insuranceinfo1.csv file with header:" + str(insuredata1.count()))
+print("count of records after cleansing:Clean Data::" + str(schmardd2.count()))
+#9. Create another RDD namely rejectdataand store the row that does not equals 10 fields, and analyze why and provide your view here.
+rejectdata=nonemptylines.filter(lambda l :'' in l) 
+print("Count of rejected data :" + str(rejectdata.count()))
+rejectdata.cache()
+# All 10 fileds doesn't has the data in between it got missed.
+
+print("####### USE CASE 2:2. Data merging, Deduplication, Performance Tuning& Persistance   ########################")
+#USE CASE 2 :  CODE BASE
+
+#12. Merge the both header removed RDDs derived in steps 7 and 11 into an RDD namely
+insuredatamerged=schmardd1.union(schmardd2)
+result=insuredatamerged.take(5)
+#13. Cache it either to memory or any other persistence levels you want, display only first few rows
+insuredatamerged.cache()
+#14. Calculate the count of rdds created in step 7+11 and rdd in step 12, check whether they are matching.
+combined_count=(schmardd1.count()+schmardd2.count())
+print("Count from RDD's created from Step 7 and Step 11:::" + str(combined_count))
+print("Count of of records from Merged RDD's::" + str(insuredatamerged.count()))
+print("Both the above counts got matched")
+#15. Remove duplicates from this merged RDD created in step 12 and print how many duplicate rows are there.
+dist=insuredatamerged.distinct()
+print("Count of Distinct Records::::" + str(dist.count()))
+#16. Increase the number of partitions to 8 and name it as insuredatarepart.
+insuredatarepart=dist.repartition(8)
+print("Display Number partitions available in RDD:" + str(insuredatarepart.getNumPartitions()))
+#insuredatarepart.foreach(print)	
+#17. Split the above RDD using the businessdate field into rdd_20191001 and rdd_20191002	
+rdd_20191001=insuredatarepart.filter(lambda x: x[2] == "01-10-2019")
+#rdd_20191001.foreach(print)
+rdd_20191002=insuredatarepart.filter(lambda x: x[2] == "02-10-2019")
+#rdd_20191002.foreach(print)
+#18. Store the RDDs created in step 9,12, 17 into HDFS locations.
+rejectdata.saveAsTextFile("hdfs:/user/hduser/Hackathon/Hackathon/cleandata_Today8.txt")
+insuredatarepart.saveAsTextFile("hdfs:/user/hduser/Hackathon/Hackathon/mergedata_Today8_.txt")
+rdd_20191001.saveAsTextFile("hdfs:/user/hduser/Hackathon/Hackathon/rdd_20191001_Today8.txt")
+rdd_20191002.saveAsTextFile("hdfs:/user/hduser/Hackathon/Hackathon/rdd_20191002_Today8.txt")
+#19. Convert the RDD created in step 16 above into Dataframenamely insuredaterepartdf applying the structtype created in the step 20 given in the next usecase.
+#insuredaterepartdf=insuredatarepart.toDF()
+#insuredaterepartdf.show()
+insureddatapart = insuredatarepart.map(lambda c: (c[0], c[1], c[2],c[3],c[4],c[5],c[6],c[7],c[8],c[9]))
+insuredschema = StructType([StructField("BusinessDate",StringType(),True),StructField("DentalOnlyPlan", StringType(), True), StructField("IssuerId2", IntegerType(), True),StructField("MarketCoverage", StringType(), True), StructField("NetworkName", StringType(), True),StructField("NetworkURL",StringType(),True),StructField("SourceName", StringType(), True),StructField("StateCode",StringType(),True),StructField("custnum", IntegerType(), True), StructField("issueID", IntegerType(), True)])
+insuredaterepartdf=sp.createDataFrame(insureddatapart,insuredschema)
+#insuredaterepartdf.show()
+
+#USE CASE 3 CODE BASE:
+print("##################### USE CASE 3:DataFrames operations #########################")
+print("##########Apply Structure, DSL column management functions, transformation, custom udf & schema migration####")
+#20. Create schema with structtype for all the columns as per the insuranceinfo1.csv.
+insuredschema=StructType([StructField("IssuerId",IntegerType(),True),StructField("IssuerId2", IntegerType(), True), StructField("BusinessDate", StringType(), True),StructField("StateCode", StringType(), True), StructField("SourceName", StringType(), True),StructField("NetworkName",StringType(),True),StructField("NetworkURL", StringType(), True),StructField("custnum",IntegerType(),True),StructField("MarketCoverage", StringType(), True), StructField("DentalOnlyPlan", StringType(), True)])
+
+#21. Create dataframes/datasets using the csv module with option to escape ‘,’ accessing the insuranceinfo1.csv and insuranceinfo2.csv files, apply the schema of the structure type created in the step 20.
+infdf1=sp.read.csv("hdfs:/user/hduser/Hackathon/Hackathon/insuranceinfo1.csv", header="True", schema=insuredschema, escape=",")
+#infdf1.show()
+infdf2=sp.read.csv("hdfs:/user/hduser/Hackathon/Hackathon/insuranceinfo2.csv", header="True", schema=insuredschema,escape=",")
+#infdf2.show()
+#22. Apply the below DSL functions in the DFs created in step 21.
+#a. Rename the fields StateCode and SourceName as stcd and srcnm respectively.
+Rename=infdf1.withColumnRenamed("StateCode","stcd").withColumnRenamed("SourceName","srcnm")
+Rename.show()
+#b. ConcatIssuerId,IssuerId2 as issueridcomposite and make it as a new field
+Concat=Rename.withColumn("issuerid_composite",f.concat(f.col("IssuerId"),f.col("IssuerId2")))
+Concat.show()
+#c. Remove DentalOnlyPlan column
+Remove=Concat.drop("DentalOnlyPlan")
+Remove.show()
+#d. Add columns that should show the current system date and timestamp with the fields name of sysdt and systs respectively.
+final=Remove.withColumn("sysdt",f.current_date()).withColumn("systs",f.current_timestamp())
+final.show()
+#23. Remove the rows contains null in any one of the field and count the number of rows
+Remove1=final.na.drop(subset=["IssuerId","IssuerId2","BusinessDate","stcd","srcnm","NetworkName","NetworkURL","custnum","MarketCoverage"])
+Remove1.show()
+#24. Create a user defined function: 
+#a. Method should take 1 string argument and 1 return of type string
+#b. Method should remove all special characters and numbers 0 to 9  - ? , / _ ( ) [ ]Hint: Try regex package, usage of [] symbol should use \\ escape sequence.
+def removespecialchar (string):
+ my_new_string = re.sub('[0-9-?,/_()\\[\\]]', '', string)
+ return my_new_string
+udfcate = udf(removespecialchar, StringType())
+#25. register the method generated in step 24 as a udf for invoking in the DSL function.
+#26. Call the above udf in the DSL by passing NetworkName column as an argument to get the special characters removed.  (Hint : withColumn)
+newdf=Remove1.withColumn("networkname",udfcate("NetworkName"))
+final_df=newdf
+final_df.show()
+#27. Save the DF generated in step 26 in JSON into HDFS with overwrite option. 
+final_df.coalesce(1).write.format('json').save('hdfs://localhost:54310/user/hduser/Hackathon/Hackathon/insuranceinfoj1_Today81.json')
+#28.Save the DF generated in step 26 into CSV format with header name as per the DF and delimited by ~ into HDFS with overwrite option.
+final_df.repartition(1).write.csv(path="hdfs://localhost:54310/user/hduser/Hackathon/Hackathon/insuranceinfoc1_Today81.csv", mode="overwrite", header="true",sep="~")
+#29. Save the DF generated in step 26 into hive table with append option.
+final_df.createOrReplaceTempView("mytempTable")
+sp.sql("create table if not exists insurance1 as select * from mytempTable")
+
+#USE CASE 4 :  CODE BASE
+print("####### USE CASE 4: Tale of handling RDDs, DFs and TempViews ########################")
+print("#################### Loading RDDs, split RDDs, Load DFs, Split DFs, Load Views, Split Views, write UDF, register to use in Spark SQL, Transform, Aggregate, store in disk/DB #######")
+#30. Load the file3 (custs_states.csv) from the HDFS location, using textfile API in an RDD custstates, this file contains 2 type of data one with 5 columns contains customer master info and other data with statecode and description of 2 columns.
+cust_states = sp.sparkContext.textFile("hdfs:/user/hduser/Hackathon/Hackathon/custs_states.csv")
+#cust_states.foreach(print)
+#cust_states.take(2)
+print("$$$$$$$$$$$$$$$$$", cust_states.count())
+#31. Split the above data into 2 RDDs, first RDD namely custfilter should be loaded only with 5 columns data and second RDD namely statesfilter should be only loaded with 2 columns data.
+custfilter = cust_states.map(lambda x: x.split(",",-1)).filter(lambda l:len(l) == 5)
+ # count of records with 5 columns 810
+#custcount=custfilter.count()
+#custfilter.take(2)
+#print("$%%%$%%%%%%%%",custcount)	
+statesfilter=cust_states.map(lambda x: x.split(",",-1)).filter(lambda p :len(p)<=5)
+# count of records with 5 columns 51
+#statecount=statesfilter.count()
+#statesfilter.take(2)
+#print("&&&&&&&&&&&&&&&&&&&&",statecount)
+custschema=StructType([StructField("id",StringType(),True),StructField("firstname", StringType(), True),StructField("lastname", StringType(), True),StructField("age", StringType(), True), StructField("profession", StringType(),True)])
+#32. Load the file3 (custs_states.csv) from the HDFS location, using CSV Module in a DF custstatesdf, this file contains 2 type of data one with 5 columns contains customer master info and other data with statecode and description of 2 columns.
+custstatesdf = sp.read.csv("hdfs:/user/hduser/Hackathon/Hackathon/custs_states.csv",schema=custschema)
+custstatesdf.show()
+#33. Split the above data into 2 DFs, first DF namely custfilterdf should be loaded only with 5 columns data and second DF namely statesfilterdf should be only loaded with 2 columns data.
+statestempdf=custstatesdf.filter(f.isnull("age")).withColumnRenamed("id","statecode").withColumnRenamed("firstname","statename").drop("lastname").drop("profession").drop("age")
+statesfilterdf=statestempdf
+statesfilterdf.show()
+statecount=statesfilterdf.count()
+#34. Register the above DFs as temporary viewsas custview and statesview.
+statesfilterdf.createOrReplaceTempView("statesview")
+custtempdf=custstatesdf.na.drop(subset=["lastname"])
+custtempdf1=custtempdf
+custcount=custtempdf1.count()
+custtempdf1.createOrReplaceTempView("custview")
+#35. Register the DF generated in step 22 as a tempview namely insureview
+final.createOrReplaceTempView("insureview")
+
+#36. Register the method created in step 24 in the name of remspecialcharudf using spark udf registration.
+sp.udf.register('udf_removespecialchar',removespecialchar)
+#a. Pass NetworkName to remspecialcharudf and get the new column called cleannetworkname
+sp.sql("select * from custview").show()
+sp.sql("select *, udf_removespecialchar(NetworkName) as cleannetworkname from insureview").show()
+#b. Add current date, current timestamp fields as curdt and curts.
+sp.sql("select *,current_date() as curdt,current_timestamp() as curts from insureview").show()
+#c. Extract the year and month from the businessdate field and get it as 2 new fields called yr,mth respectively.
+sp.sql("select *,year(BusinessDate) as yr,month(BusinessDate) as mth from insureview").show()
+#d. Extract from the protocol either http/https from the NetworkURL column, if no protocol found then display noprotocol. For Eg: if http://www2.dentemax.com/ then show http if www.bridgespanhealth.com then show as noprotocol store in a column called protocol.
+sp.sql("select *, case when substr(NetworkURL,0,5) == 'https' then 'https' when substr(NetworkURL,0,4) == 'http' then 'http' else 'noprotocol' end as protocol from insureview").show() 
+#e. Display all the columns from insureview including the columns derived from above a,b,c, d steps with statedesc column from statesview with age,profession column from custview . Do an Inner Join of insureview with statesview using stcd=stated and join insureview with custview using custnum=custid.
+final_sql=sp.sql("select i.*, udf_removespecialchar(i.NetworkName) as cleannetworkname,current_date() as curdt,current_timestamp() as curts,year(i.BusinessDate) as yr,month(i.BusinessDate) as mth,case when substr(i.NetworkURL,0,5) == 'https' then 'https' when substr(i.NetworkURL,0,4) == 'http' then 'http' else 'noprotocol' end as protocol,s.statename,c.age,c.profession from insureview i join statesview s on i.stcd = s.statecode join custview c on c.id = i.custnum")
+final_sql.show()
+#38. Store the above selected Dataframe in Parquet formats in a HDFS location as a single file.
+final_sql.write.parquet("hdfs://localhost:54310/user/hduser/Hackathon/Hackathon/finalsql_Today8.parquet")
+final_sql.write.orc("hdfs://localhost:54310/user/hduser/Hackathon/Hackathon/finalsql_Today8.orc")
+#39. Write an SQL query to identify average age, count group by statedesc, protocol, profession.
+final_sql.createOrReplaceTempView("finalview")
+aggsql=sp.sql("select statename,profession,protocol,count(1),avg(age) as average_age from finalview group by statename,profession,protocol")
+destination_df=aggsql
+destination_df.show()
+#40. Store the DF generated in step 39 into MYSQL table insureinfo if time permits.
+#destination_df.write.format('jdbc').options(
+         # url='jdbc:mysql://localhost/spark',
+          #driver='com.mysql.jdbc.Driver',
+          #dbtable='spark.final_table',
+         # user='root',
+          #password='root').mode('append').save() */
+#### Got this error when we run above code py4j.protocol.Py4JJavaError: An error occurred while calling o478.save.
+####java.lang.RuntimeException: org.apache.spark.sql.execution.datasources.jdbc.JdbcRelationProvider does not allow create table as	
